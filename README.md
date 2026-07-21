@@ -1,5 +1,9 @@
 # Gurjar Hospital — Appointment Booking System
 
+## Live Demo
+
+https://hospital-appointment-booking-system-dlno.onrender.com
+
 A full-stack hospital appointment system built with React, Express and MongoDB. It demonstrates authentication, role-based authorization, server-side validation, appointment workflow rules and database-level double-booking prevention.
 
 ## Features
