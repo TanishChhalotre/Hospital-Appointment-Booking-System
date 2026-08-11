@@ -1,0 +1,11 @@
+{
+  "name": "gurjar-hospital",
+  "version": "1.0.0",
+  "description": "Gurjar Hospital appointment booking system",
+  "scripts": {
+    "server": "cd server && node index.js",
+    "client": "cd client && npm run dev",
+    "build":  "cd client && npm run build",
+    "start":  "cd server && node index.js"
+  }
+}
