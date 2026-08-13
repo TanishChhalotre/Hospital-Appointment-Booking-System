@@ -1,4 +1,7 @@
+const dns = require('dns');
 const nodemailer = require('nodemailer');
+
+dns.setDefaultResultOrder('ipv4first');
 
 // ── Transporter ──────────────────────────────────────────────────────────────
 // nodemailer.createTransport() sets up the connection to the email provider.
@@ -7,17 +10,26 @@ const nodemailer = require('nodemailer');
 // For Gmail: host=smtp.gmail.com, port=587, user=your@gmail.com, pass=App Password
 function createTransporter() {
   return nodemailer.createTransport({
-    host:   process.env.SMTP_HOST,
-    port:   Number(process.env.SMTP_PORT) || 587,
-    secure: false,           // false = STARTTLS on port 587 (true = TLS on port 465)
-    family: 4,        // Use IPv4, not IPv6 (some email providers don't support IPv6)
+    host: process.env.SMTP_HOST,
+
+    // Gmail SMTP over SSL
+    port: Number(process.env.SMTP_PORT) || 465,
+    secure: true,
+
+    // Force IPv4
+    family: 4,
+
+    // Prevent signup request from hanging for too long
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
   });
 }
-
 // ── sendOtpEmail ─────────────────────────────────────────────────────────────
 // Sends the 6-digit OTP to the user's email address.
 // otp  : the raw 6-digit string e.g. "482910"
