@@ -10,6 +10,7 @@ function createTransporter() {
     host:   process.env.SMTP_HOST,
     port:   Number(process.env.SMTP_PORT) || 587,
     secure: false,           // false = STARTTLS on port 587 (true = TLS on port 465)
+    family: 4,        // Use IPv4, not IPv6 (some email providers don't support IPv6)
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
