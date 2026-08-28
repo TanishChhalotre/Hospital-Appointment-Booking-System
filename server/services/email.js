@@ -1,4 +1,5 @@
 const dns = require('dns');
+const net = require('net');
 const nodemailer = require('nodemailer');
 
 dns.setDefaultResultOrder('ipv4first');
@@ -7,17 +8,38 @@ dns.setDefaultResultOrder('ipv4first');
 // nodemailer.createTransport() sets up the connection to the email provider.
 // We read credentials from .env so they are never hardcoded in the source code.
 // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS are set on Render as environment vars.
-// For Gmail: host=smtp.gmail.com, port=587, user=your@gmail.com, pass=App Password
-function createTransporter() {
+// For Gmail: host=smtp.gmail.com, port=465, user=your@gmail.com, pass=App Password
+//
+// IMPORTANT — why we resolve the host to an IPv4 address first:
+// nodemailer 9 resolves BOTH IPv4 (A) and IPv6 (AAAA) records for the host
+// and picks one AT RANDOM (it ignores the `family: 4` option entirely).
+// Render instances have an IPv6 interface but no IPv6 route, so whenever the
+// random pick is IPv6 the connection dies with "ENETUNREACH" and the OTP is
+// never sent. Passing an IPv4 literal makes nodemailer skip DNS resolution
+// altogether, so the connection is always over IPv4.
+async function createTransporter() {
+  const hostname = process.env.SMTP_HOST;
+  let host = hostname;
+
+  if (hostname && !net.isIP(hostname)) {
+    try {
+      const [first] = await dns.promises.resolve4(hostname);
+      if (first) host = first;
+    } catch {
+      // If resolve4 fails, fall back to the plain hostname (old behaviour).
+    }
+  }
+
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+    host,
+
+    // When we connect to the IP literal above, SNI must still identify the
+    // real hostname or Gmail drops the TLS handshake.
+    servername: hostname,
 
     // Gmail SMTP over SSL
     port: Number(process.env.SMTP_PORT) || 465,
     secure: true,
-
-    // Force IPv4
-    family: 4,
 
     // Prevent signup request from hanging for too long
     connectionTimeout: 10000,
@@ -36,7 +58,7 @@ function createTransporter() {
 // email: the recipient's email address
 // name : used to personalise the greeting
 async function sendOtpEmail(email, name, otp) {
-  const transporter = createTransporter();
+  const transporter = await createTransporter();
 
   await transporter.sendMail({
     from:    `"Gurjar Hospital" <${process.env.SMTP_USER}>`,
@@ -51,13 +73,13 @@ async function sendOtpEmail(email, name, otp) {
         <p style="color:#4b5563;margin-bottom:24px;">Hi ${name}, please verify your email to complete registration.</p>
         <div style="background:#f0f9ff;border-radius:8px;padding:24px;text-align:center;margin-bottom:24px;">
           <p style="color:#6b7280;font-size:0.9rem;margin-bottom:8px;">Your verification code</p>
-          <p style="font-size:2.5rem;font-weight:800;letter-spacing:8px;color:#0b6e99;margin:0;">${otp}</p>
+          <p style="color:#0b6e99;font-size:2.5rem;font-weight:800;letter-spacing:8px;margin:0;">${otp}</p>
         </div>
-        <p style="color:#6b7280;font-size:0.85rem;">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+        <p style="color:#6b7280;font-size:0.85rem;">This code expires in <strong>10 minutes</strong>. Do not share this code with anyone.</p>
         <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
         <p style="color:#9ca3af;font-size:0.8rem;">If you didn't create an account, ignore this email.</p>
       </div>
-    `,
+    `
   });
 }
 
