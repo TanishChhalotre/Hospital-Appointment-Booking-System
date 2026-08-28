@@ -1,86 +1,61 @@
-const dns = require('dns');
-const net = require('net');
-const nodemailer = require('nodemailer');
-
-dns.setDefaultResultOrder('ipv4first');
-
-// ── Transporter ──────────────────────────────────────────────────────────────
-// nodemailer.createTransport() sets up the connection to the email provider.
-// We read credentials from .env so they are never hardcoded in the source code.
-// SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS are set on Render as environment vars.
-// For Gmail: host=smtp.gmail.com, port=465, user=your@gmail.com, pass=App Password
+// ── OTP email (via EmailJS — HTTPS, no SMTP) ─────────────────────────────────
+// Why EmailJS instead of Gmail SMTP (nodemailer)?
 //
-// IMPORTANT — why we resolve the host to an IPv4 address first:
-// nodemailer 9 resolves BOTH IPv4 (A) and IPv6 (AAAA) records for the host
-// and picks one AT RANDOM (it ignores the `family: 4` option entirely).
-// Render instances have an IPv6 interface but no IPv6 route, so whenever the
-// random pick is IPv6 the connection dies with "ENETUNREACH" and the OTP is
-// never sent. Passing an IPv4 literal makes nodemailer skip DNS resolution
-// altogether, so the connection is always over IPv4.
-async function createTransporter() {
-  const hostname = process.env.SMTP_HOST;
-  let host = hostname;
+// Render's FREE web services block ALL outbound SMTP traffic (ports 25, 465
+// and 587) since September 2025, so nodemailer can never connect from a free
+// Render instance — every attempt ends in "Connection timeout" no matter how
+// the transporter is configured. EmailJS sends the message from its own
+// servers over HTTPS (port 443), which Render always allows. The email still
+// comes FROM your connected Gmail account, so recipients see the same
+// sender as before.
+//
+// One-time setup (free, ~10 minutes):
+//   1. Sign up at https://www.emailjs.com
+//   2. Email Services → Add new → Gmail → "Connect Account" (log in with the
+//      Gmail that should send the OTPs and allow "send emails on your behalf")
+//   3. Email Templates → Create New Template →
+//        To Email : {{email}}
+//        Subject  : Your Gurjar Hospital verification code
+//        Body     : write it however you like, use the variables {{name}}
+//                   and {{otp}} where they should appear
+//   4. Render dashboard → Environment: add EMAILJS_SERVICE_ID,
+//      EMAILJS_TEMPLATE_ID and EMAILJS_PUBLIC_KEY
+//      (Public Key: EmailJS dashboard → Integrations → API Keys)
 
-  if (hostname && !net.isIP(hostname)) {
-    try {
-      const [first] = await dns.promises.resolve4(hostname);
-      if (first) host = first;
-    } catch {
-      // If resolve4 fails, fall back to the plain hostname (old behaviour).
-    }
+async function sendOtpEmail(email, name, otp) {
+  const serviceId  = process.env.EMAILJS_SERVICE_ID;
+  const templateId = process.env.EMAILJS_TEMPLATE_ID;
+  const publicKey  = process.env.EMAILJS_PUBLIC_KEY;
+
+  if (!serviceId || !templateId || !publicKey) {
+    throw new Error(
+      'EmailJS is not configured. Add EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID ' +
+      'and EMAILJS_PUBLIC_KEY to the Render environment variables.'
+    );
   }
 
-  return nodemailer.createTransport({
-    host,
+  const body = {
+    service_id:    serviceId,
+    template_id:   templateId,
+    user_id:       publicKey,
+    template_params: { email, name, otp },
+  };
 
-    // When we connect to the IP literal above, SNI must still identify the
-    // real hostname or Gmail drops the TLS handshake.
-    servername: hostname,
+  // Private key is optional but recommended by EmailJS (Integrations → API Keys)
+  if (process.env.EMAILJS_PRIVATE_KEY) {
+    body.accessToken = process.env.EMAILJS_PRIVATE_KEY;
+  }
 
-    // Gmail SMTP over SSL
-    port: Number(process.env.SMTP_PORT) || 465,
-    secure: true,
-
-    // Prevent signup request from hanging for too long
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
-
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
+  const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
   });
-}
-// ── sendOtpEmail ─────────────────────────────────────────────────────────────
-// Sends the 6-digit OTP to the user's email address.
-// otp  : the raw 6-digit string e.g. "482910"
-// email: the recipient's email address
-// name : used to personalise the greeting
-async function sendOtpEmail(email, name, otp) {
-  const transporter = await createTransporter();
 
-  await transporter.sendMail({
-    from:    `"Gurjar Hospital" <${process.env.SMTP_USER}>`,
-    to:      email,
-    subject: 'Your Gurjar Hospital verification code',
-    // Plain-text version for email clients that don't render HTML
-    text: `Hi ${name},\n\nYour verification code is: ${otp}\n\nIt expires in 10 minutes. Do not share this code with anyone.\n\nGurjar Hospital`,
-    // HTML version — shown in modern email clients
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px;">
-        <h2 style="color:#0b6e99;margin-bottom:8px;">Gurjar Hospital</h2>
-        <p style="color:#4b5563;margin-bottom:24px;">Hi ${name}, please verify your email to complete registration.</p>
-        <div style="background:#f0f9ff;border-radius:8px;padding:24px;text-align:center;margin-bottom:24px;">
-          <p style="color:#6b7280;font-size:0.9rem;margin-bottom:8px;">Your verification code</p>
-          <p style="color:#0b6e99;font-size:2.5rem;font-weight:800;letter-spacing:8px;margin:0;">${otp}</p>
-        </div>
-        <p style="color:#6b7280;font-size:0.85rem;">This code expires in <strong>10 minutes</strong>. Do not share this code with anyone.</p>
-        <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
-        <p style="color:#9ca3af;font-size:0.8rem;">If you didn't create an account, ignore this email.</p>
-      </div>
-    `
-  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`EmailJS send failed (HTTP ${response.status}): ${detail}`);
+  }
 }
 
 module.exports = { sendOtpEmail };
