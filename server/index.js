@@ -1,7 +1,6 @@
 require('dotenv').config();
 
 const express   = require('express');
-const cors      = require('cors');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path      = require('path');
@@ -16,12 +15,33 @@ const allowedOrigins = [process.env.CLIENT_URL, 'http://localhost:5173'].filter(
 
 app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error('Origin is not allowed by CORS'));
-  },
-}));
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// In production this server also serves the built frontend, so requests whose
+// Origin matches this server's own Host header are same-origin and are always
+// allowed (browsers send an Origin header even on same-origin requests).
+// Cross-origin requests (local dev on :5173, or a separately hosted frontend)
+// must appear in the explicit allowlist above.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  // Non-browser requests (curl, health checks, server-to-server) have no Origin.
+  if (!origin) return next();
+
+  const host = req.headers.host || '';
+  const sameOrigin = origin === `https://${host}` || origin === `http://${host}`;
+  if (!sameOrigin && !allowedOrigins.includes(origin)) {
+    return next(new Error('Origin is not allowed by CORS'));
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+  const requestedHeaders = req.headers['access-control-request-headers'];
+  if (requestedHeaders) res.setHeader('Access-Control-Allow-Headers', requestedHeaders);
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 app.use(express.json({ limit: '20kb' }));
 
 // ── Rate limiters ─────────────────────────────────────────────────────────────
