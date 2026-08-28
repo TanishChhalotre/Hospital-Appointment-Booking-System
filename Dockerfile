@@ -12,5 +12,5 @@ COPY server/package*.json ./server/
 RUN cd server && npm ci --omit=dev
 COPY server/ ./server/
 COPY --from=client-build /app/client/dist ./client/dist
-EXPOSE 10000
+EXPOSE 5000
 CMD ["node", "server/index.js"]

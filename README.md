@@ -103,8 +103,8 @@ cd ../client && npm run build
 1. Push the repository to GitHub.
 2. Create a **Web Service** on Render and select the **Docker** runtime.
 3. Keep the repository root as the root directory and use `./Dockerfile`.
-4. Add `MONGODB_URI`, a 32+ character `JWT_SECRET`, `CLIENT_URL`, and `SEED_DATABASE`.
-5. Initially set `CLIENT_URL` to your exact `https://<service>.onrender.com` URL and redeploy.
+4. Add `MONGODB_URI`, a 32+ character `JWT_SECRET`, and `SEED_DATABASE`.
+5. `CLIENT_URL` is **optional** for this deploy: the server serves the built frontend itself, so requests from your `https://<service>.onrender.com` URL are same-origin and always allowed. Set `CLIENT_URL` only if you host the frontend separately and call the API cross-origin.
 6. Render supplies `PORT`; do not hardcode it in the dashboard.
 7. Allow the required network access in MongoDB Atlas.
 
